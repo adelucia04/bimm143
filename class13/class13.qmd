@@ -1,0 +1,310 @@
+---
+title: "Class13: Transcriptomics and the analysis of RNA-Seq data"
+author: "Joli DeLucia (A17320476)"
+format: pdf
+toc: TRUE
+---
+
+## Background 
+
+From lab worksheet: The data for this hands-on session comes from a published RNA-seq experiment where airway smooth muscle cells were treated with dexamethasone, a synthetic glucocorticoid steroid with anti-inflammatory effects (Himes et al. 2014).
+
+I started by dowloading the needed BioConductor package "DESeq2".
+
+```{r}
+counts <- read.csv("airway_scaledcounts.csv", row.names=1)
+metadata <- read.csv("airway_metadata.csv")
+```
+
+Now, taking a look at the head of each:
+
+```{r}
+head(counts)
+```
+
+```{r}
+head(metadata)
+```
+
+> Q1. How many genes are in this dataset?
+
+```{r}
+nrow(counts)
+```
+
+> Q2. How many ‘control’ cell lines do we have? 
+
+```{r}
+sum(metadata$dex == "control")
+```
+
+## Differential gene expression
+
+```{r}
+control <- metadata[metadata[,"dex"]=="control",]
+control.counts <- counts[ ,control$id]
+control.mean <- rowSums( control.counts )/4 
+head(control.mean)
+```
+
+> Q.3 How would you make the above code in either approach more robust? Is there a function that could help here?
+
+I think using ncol in place of the `/4` part of the code would work better because if you change the amount of control's in the data then you have to manually change this everytime. if you use `control.mean <- rowSums(control.counts) / ncol(control.counts)` instead for that line, we wouldn't have to change it. Testing it here:
+
+```{r}
+control <- metadata[metadata[,"dex"]=="control",]
+control.counts <- counts[ ,control$id]
+control.mean <- rowSums(control.counts) / ncol(control.counts)
+head(control.mean)
+```
+
+We get the same result!
+
+> Q.4 Follow the same procedure for the treated samples (i.e. calculate the mean per gene across drug treated samples and assign to a labeled vector called treated.mean)
+
+```{r}
+treated <- metadata[metadata[,"dex"]=="treated",]
+treated.counts <- counts[ ,treated$id]
+treated.mean <- rowSums(treated.counts) / ncol(treated.counts)
+head(treated.mean)
+```
+
+Combine the meancount for bookkeeping:
+
+```{r}
+meancounts <- data.frame(control.mean, treated.mean)
+```
+
+```{r}
+colSums(meancounts)
+```
+
+> Q5 (a). Create a scatter plot showing the mean of the treated samples against the mean of the control samples. 
+
+```{r}
+plot(meancounts[,1],meancounts[,2], xlab="Control", ylab="Treated")
+```
+
+> Q5 (b).You could also use the ggplot2 package to make this figure producing the plot below. What geom_?() function would you use for this plot? 
+
+`geom_point`
+
+> Q6. Try plotting both axes on a log scale. What is the argument to plot() that allows you to do this? 
+
+plot(log)
+
+```{r}
+plot(log(meancounts[,1]),log(meancounts[,2]), xlab="log Control", ylab="log Treated")
+```
+
+```{r}
+meancounts$log2fc <- log2(meancounts[,"treated.mean"]/meancounts[,"control.mean"])
+head(meancounts)
+```
+
+Fix the -Inf and NaN parts:
+
+```{r}
+zero.vals <- which(meancounts[,1:2]==0, arr.ind=TRUE)
+
+to.rm <- unique(zero.vals[,1])
+mycounts <- meancounts[-to.rm,]
+head(mycounts)
+```
+
+> Q7. What is the purpose of the arr.ind argument in the which() function call above? Why would we then take the first column of the output and need to call the unique() function?
+
+It tells the `which()` argument to retunr the true values and which have zero counts. We want to use `unique()` so we don't count any of the rows more than once if it has zero entries in both samples because we want to ignore the zero counts. 
+
+Let's filter show how many genes are up vs down regulated:
+
+```{r}
+up.ind <- mycounts$log2fc > 2
+down.ind <- mycounts$log2fc < (-2)
+```
+
+> Q8. Using the up.ind vector above can you determine how many up regulated genes we have at the greater than 2 fc level? 
+
+250
+
+> Q9. Using the down.ind vector above can you determine how many down regulated genes we have at the greater than 2 fc level? 
+
+367
+
+```{r}
+sum(up.ind)
+sum(down.ind)
+```
+
+> Q10. Do you trust these results? Why or why not?
+
+We haven't done any statistical analysis with the results and the new scaling with log so we can't inerpret these results quite yet because we don't know if they are statistically significant.
+
+## Setting up for DESeq
+
+```{r}
+library(DESeq2)
+citation("DESeq2")
+```
+
+```{r}
+dds <- DESeqDataSetFromMatrix(countData=counts, 
+                              colData=metadata, 
+                              design=~dex)
+dds
+```
+
+## PCA
+
+```{r}
+vsd <- vst(dds, blind = FALSE)
+plotPCA(vsd, intgroup = c("dex"))
+```
+
+```{r}
+pcaData <- plotPCA(vsd, intgroup=c("dex"), returnData=TRUE)
+head(pcaData)
+```
+
+Percent variance then plot:
+
+```{r}
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+```
+
+```{r}
+library(ggplot2)
+ggplot(pcaData) +
+  aes(x = PC1, y = PC2, color = dex) +
+  geom_point(size =3) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  coord_fixed() +
+  theme_bw()
+```
+
+## DESeq Analysis
+
+```{r}
+dds <- DESeq(dds)
+```
+
+```{r}
+res <- results(dds)
+res
+```
+
+```{r}
+summary(res)
+```
+
+```{r}
+res05 <- results(dds, alpha=0.05)
+summary(res05)
+```
+
+## Adding Annotation Data
+
+Started by downloading the "AnnotationDbi" and "org.Hs.eg.db" packages. Now I can load them:
+
+```{r}
+library("AnnotationDbi")
+library("org.Hs.eg.db")
+```
+
+```{r}
+columns(org.Hs.eg.db)
+```
+
+```{r}
+res$symbol <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     keytype="ENSEMBL",
+                     column="SYMBOL",
+                     multiVals="first")
+```
+
+```{r}
+head(res)
+```
+
+> Q.11 Run the mapIds() function two more times to add the Entrez ID and UniProt accession and GENENAME as new columns called res$entrez, res$uniprot and res$genename.
+
+```{r}
+res$entrez <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="ENTREZID",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+res$uniprot <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="UNIPROT",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+res$genename <- mapIds(org.Hs.eg.db,
+                     keys=row.names(res),
+                     column="GENENAME",
+                     keytype="ENSEMBL",
+                     multiVals="first")
+
+head(res)
+```
+
+```{r}
+ord <- order( res$padj )
+head(res[ord,])
+```
+
+```{r}
+write.csv(res[ord,], "deseq_results.csv")
+```
+
+## Data Visualization
+
+Let's make a volcano plot:
+
+```{r}
+plot( res$log2FoldChange,  -log(res$padj), 
+      xlab="Log2(FoldChange)",
+      ylab="-Log(P-value)")
+```
+
+Add some lines:
+
+```{r}
+plot( res$log2FoldChange,  -log(res$padj), 
+ ylab="-Log(P-value)", xlab="Log2(FoldChange)")
+
+# Add some cut-off lines
+abline(v=c(-2,2), col="darkgray", lty=2)
+abline(h=-log(0.05), col="darkgray", lty=2)
+```
+
+Color the points:
+
+```{r}
+mycols <- rep("gray", nrow(res))
+mycols[ abs(res$log2FoldChange) > 2 ]  <- "red" 
+inds <- (res$padj < 0.01) & (abs(res$log2FoldChange) > 2 )
+mycols[ inds ] <- "blue"
+plot( res$log2FoldChange,  -log(res$padj), 
+ col=mycols, ylab="-Log(P-value)", xlab="Log2(FoldChange)" )
+abline(v=c(-2,2), col="gray", lty=2)
+abline(h=-log(0.1), col="gray", lty=2)
+```
+
+Let's try the Enriched volcano package:
+
+```{r}
+library(ggrepel)
+library(EnhancedVolcano)
+x <- as.data.frame(res)
+
+EnhancedVolcano(x,
+    lab = x$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue')
+```
+

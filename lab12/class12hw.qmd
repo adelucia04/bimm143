@@ -1,0 +1,47 @@
+---
+title: "class12"
+author: "Joli DeLucia A17320476"
+format: pdf
+---
+
+> Q.13
+
+```{r}
+url <- "https://bioboot.github.io/bggn213_W19/class-material/rs8067378_ENSG00000172057.6.txt"
+
+dat <- read.table(url)
+dat
+```
+
+```{r}
+dat <- dat[, 1:3]
+colnames(dat) <- c("sample", "genotype", "expression")
+dat
+```
+
+```{r}
+geno_counts <- table(dat$genotype)
+geno_counts
+```
+
+```{r}
+geno_medians <- tapply(dat$expression, dat$genotype, median)
+geno_medians
+```
+
+> Q.14
+
+```{r}
+library(ggplot2)
+dat$genotype <- factor(dat$genotype, levels = c("A/A","A/G","G/G"))
+
+ggplot(dat, aes(x = genotype, y = expression, fill = genotype)) +
+  geom_boxplot(notch = TRUE, width = 0.70, outlier.shape = NA) +
+  geom_jitter(width = 0.18, alpha = 0.6, size = 2, color = "gray30") +
+  scale_fill_manual(values = c("A/A"="#F8766D", "A/G"="#00BA38", "G/G"="#619CFF")) +
+  labs(x = "Genotype", y = "Expression") +
+  theme_gray(base_size = 16) +
+  theme(legend.position = "none")
+```
+
+
